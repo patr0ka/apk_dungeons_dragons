@@ -1,104 +1,61 @@
+import 'app_logo_title.dart';
+
 import 'package:flutter/material.dart';
+
 import 'busca_monstro_page.dart';
 import 'busca_magia_page.dart';
 import 'busca_classe_page.dart';
+import 'busca_equipamento_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    const categorias = [
+      ('Monstros', Icons.pets, BuscaMonstro()),
+      ('Magias', Icons.auto_awesome, BuscaMagia()),
+      ('Classes', Icons.shield, BuscaClasse()),
+      ('Equipamentos', Icons.backpack, BuscaEquipamento()),
+    ];
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Image.asset(
-              'assets/imgs/logo.jpeg',
-              fit: BoxFit.contain,
-              height: 40,
-              errorBuilder: (context, error, stackTrace) {
-                return const Text(
-                  "D&D 5e Compêndio",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 22,
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
+        title: const AppLogoTitle(titulo: 'D&D 5e Compêndio'),
         centerTitle: true,
       ),
-      backgroundColor: Colors.black,
-      body: Padding(
-        padding: const EdgeInsets.all(10.0),
-        child: Column(
-          children: [
-            GestureDetector(
-              child: const Row(
-                children: [
-                  Icon(Icons.pets, color: Colors.white, size: 50.0),
-                  SizedBox(width: 30),
-                  Text(
-                    "Monstros",
-                    style: TextStyle(color: Colors.white, fontSize: 20.0),
+      body: SafeArea(
+        child: GridView.count(
+          padding: const EdgeInsets.all(16),
+          crossAxisCount: 2,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          mainAxisExtent: 180,
+          children: categorias
+              .map(
+                (categoria) => OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.all(8),
                   ),
-                ],
-              ),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const BuscaMonstro()),
-                );
-              },
-            ),
-
-            const SizedBox(height: 10),
-
-            GestureDetector(
-              child: const Row(
-                children: [
-                  Icon(Icons.auto_awesome, color: Colors.white, size: 50.0),
-                  SizedBox(width: 30),
-                  Text(
-                    "Magias",
-                    style: TextStyle(color: Colors.white, fontSize: 20.0),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(builder: (_) => categoria.$3),
                   ),
-                ],
-              ),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const BuscaMagia()),
-                );
-              },
-            ),
-
-            const SizedBox(height: 10),
-
-            GestureDetector(
-              child: const Row(
-                children: [
-                  Icon(Icons.shield, color: Colors.white, size: 50.0),
-                  SizedBox(width: 30),
-                  Text(
-                    "Classes",
-                    style: TextStyle(color: Colors.white, fontSize: 20.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(categoria.$2, size: 48),
+                      const SizedBox(height: 12),
+                      Text(
+                        categoria.$1,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 18),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const BuscaClasse()),
-                );
-              },
-            ),
-          ],
+                ),
+              )
+              .toList(),
         ),
       ),
     );

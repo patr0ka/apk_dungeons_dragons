@@ -1,9 +1,12 @@
-import 'dart:convert';
-import 'dart:io';
+import 'api_client.dart';
+import 'busca_validator.dart';
+
 import 'package:http/http.dart' as http;
 
 class DndService {
-  final String _baseUrl = "https://www.dnd5eapi.co/api/2014";
+  DndService({http.Client? client}) : _api = ApiClient(client: client);
+  final ApiClient _api;
+  void dispose() => _api.close();
 
   // Dicionário de tradução/apelidos para Monstros (Português -> Inglês)
   static final Map<String, String> _monstrosAliases = {
@@ -112,178 +115,75 @@ class DndService {
     'bruxo': 'warlock',
   };
 
-  // Busca detalhes de um monstro na D&D 5e API
-  Future<Map<String, dynamic>> buscaMonstro(String? valor) async {
-    if (valor == null || valor.trim().isEmpty) {
-      throw Exception('Por favor, digite o nome de um monstro.');
+  Future<Map<String, dynamic>> buscaMonstro(String? valor) =>
+      _buscar('monsters', valor, _monstrosAliases);
+  Future<Map<String, dynamic>> buscaMagia(String? valor) =>
+      _buscar('spells', valor, _magiasAliases);
+  Future<Map<String, dynamic>> buscaClasse(String? valor) =>
+      _buscar('classes', valor, _classesAliases);
+  Future<Map<String, dynamic>> buscaEquipamento(String? valor) =>
+      _buscar('equipment', valor, const {
+        'espada': 'longsword',
+        'espada longa': 'longsword',
+        'adaga': 'dagger',
+        'escudo': 'shield',
+        'arco longo': 'longbow',
+        'armadura de placas': 'plate',
+        'machado': 'battleaxe',
+        'corda': 'rope',
+        'tocha': 'torch',
+        'mochila': 'backpack',
+      });
+
+  Future<Map<String, dynamic>> _buscar(
+    String categoria,
+    String? valor,
+    Map<String, String> aliases,
+  ) async {
+    final erro = validaBusca(valor);
+    if (erro != null) throw Exception(erro);
+    final normalizado = valor!.trim().toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      ' ',
+    );
+    final busca = aliases[normalizado] ?? normalizado;
+    final listagem = await _api.get(
+      Uri.https('www.dnd5eapi.co', '/api/2014/$categoria', {'name': busca}),
+      'D&D',
+    );
+    final results = listagem['results'];
+    if (results is! List) {
+      throw Exception('A API D&D retornou uma resposta inválida.');
     }
-
-    String busca = valor.trim().toLowerCase();
-    if (_monstrosAliases.containsKey(busca)) {
-      busca = _monstrosAliases[busca]!;
+    if (results.isEmpty) {
+      throw Exception(
+        'Nenhum resultado para "$valor". Tente o nome em inglês ou um dos exemplos.',
+      );
     }
-
-    try {
-      // 1. Tentar busca por parâmetro name
-      final searchUri = Uri.parse("$_baseUrl/monsters?name=${Uri.encodeQueryComponent(busca)}");
-      final searchResponse = await http.get(searchUri);
-
-      if (searchResponse.statusCode == 200) {
-        final searchData = json.decode(searchResponse.body);
-        final int count = searchData['count'] ?? 0;
-        final List results = searchData['results'] ?? [];
-
-        if (count > 0 && results.isNotEmpty) {
-          var escolhido = results.firstWhere(
-            (item) => item['name'].toString().toLowerCase() == busca,
-            orElse: () => results.first,
-          );
-
-          final detailUri = Uri.parse("https://www.dnd5eapi.co${escolhido['url']}");
-          final detailResponse = await http.get(detailUri);
-
-          if (detailResponse.statusCode == 200) {
-            final detailData = Map<String, dynamic>.from(json.decode(detailResponse.body));
-            if (results.length > 1) {
-              detailData['_outros_resultados'] = results
-                  .take(6)
-                  .map((e) => e['name'].toString())
-                  .where((name) => name != detailData['name'])
-                  .toList();
-            }
-            return detailData;
-          }
-        }
-      }
-
-      // 2. Fallback: tentar busca direta por slug / índice
-      final slug = busca.replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-|-$'), '');
-      final slugUri = Uri.parse("$_baseUrl/monsters/$slug");
-      final slugResponse = await http.get(slugUri);
-
-      if (slugResponse.statusCode == 200) {
-        return Map<String, dynamic>.from(json.decode(slugResponse.body));
-      }
-
-      throw Exception('Monstro "$valor" não encontrado. Tente termos como: goblin, dragon, skeleton, zombie, beholder.');
-    } on SocketException {
-      throw Exception('Erro de conexão com a internet');
-    } catch (e) {
-      rethrow;
+    final itens = results.whereType<Map>().toList();
+    if (itens.isEmpty) {
+      throw Exception('A API D&D retornou uma resposta inválida.');
     }
-  }
-
-  // Busca detalhes de uma magia na D&D 5e API
-  Future<Map<String, dynamic>> buscaMagia(String? valor) async {
-    if (valor == null || valor.trim().isEmpty) {
-      throw Exception('Por favor, digite o nome de uma magia.');
+    final escolhido = itens.firstWhere(
+      (item) => item['name'].toString().toLowerCase() == busca,
+      orElse: () => itens.first,
+    );
+    final index = escolhido['index'];
+    if (index is! String || !RegExp(r'^[a-z0-9-]+$').hasMatch(index)) {
+      throw Exception('A API D&D retornou um identificador inválido.');
     }
-
-    String busca = valor.trim().toLowerCase();
-    if (_magiasAliases.containsKey(busca)) {
-      busca = _magiasAliases[busca]!;
+    final detalhe = await _api.get(
+      Uri.https('www.dnd5eapi.co', '/api/2014/$categoria/$index'),
+      'D&D',
+    );
+    if (detalhe['name'] is! String) {
+      throw Exception('A API D&D retornou uma resposta inválida.');
     }
-
-    try {
-      // 1. Tentar busca por parâmetro name
-      final searchUri = Uri.parse("$_baseUrl/spells?name=${Uri.encodeQueryComponent(busca)}");
-      final searchResponse = await http.get(searchUri);
-
-      if (searchResponse.statusCode == 200) {
-        final searchData = json.decode(searchResponse.body);
-        final int count = searchData['count'] ?? 0;
-        final List results = searchData['results'] ?? [];
-
-        if (count > 0 && results.isNotEmpty) {
-          var escolhido = results.firstWhere(
-            (item) => item['name'].toString().toLowerCase() == busca,
-            orElse: () => results.first,
-          );
-
-          final detailUri = Uri.parse("https://www.dnd5eapi.co${escolhido['url']}");
-          final detailResponse = await http.get(detailUri);
-
-          if (detailResponse.statusCode == 200) {
-            final detailData = Map<String, dynamic>.from(json.decode(detailResponse.body));
-            if (results.length > 1) {
-              detailData['_outros_resultados'] = results
-                  .take(6)
-                  .map((e) => e['name'].toString())
-                  .where((name) => name != detailData['name'])
-                  .toList();
-            }
-            return detailData;
-          }
-        }
-      }
-
-      // 2. Fallback: tentar busca direta por slug / índice
-      final slug = busca.replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-|-$'), '');
-      final slugUri = Uri.parse("$_baseUrl/spells/$slug");
-      final slugResponse = await http.get(slugUri);
-
-      if (slugResponse.statusCode == 200) {
-        return Map<String, dynamic>.from(json.decode(slugResponse.body));
-      }
-
-      throw Exception('Magia "$valor" não encontrada. Tente termos como: fireball, magic missile, shield, cure wounds.');
-    } on SocketException {
-      throw Exception('Erro de conexão com a internet');
-    } catch (e) {
-      rethrow;
-    }
-  }
-
-  // Busca detalhes de uma classe na D&D 5e API
-  Future<Map<String, dynamic>> buscaClasse(String? valor) async {
-    if (valor == null || valor.trim().isEmpty) {
-      throw Exception('Por favor, digite o nome de uma classe.');
-    }
-
-    String busca = valor.trim().toLowerCase();
-    if (_classesAliases.containsKey(busca)) {
-      busca = _classesAliases[busca]!;
-    }
-
-    try {
-      // 1. Tentar busca por parâmetro name
-      final searchUri = Uri.parse("$_baseUrl/classes?name=${Uri.encodeQueryComponent(busca)}");
-      final searchResponse = await http.get(searchUri);
-
-      if (searchResponse.statusCode == 200) {
-        final searchData = json.decode(searchResponse.body);
-        final int count = searchData['count'] ?? 0;
-        final List results = searchData['results'] ?? [];
-
-        if (count > 0 && results.isNotEmpty) {
-          var escolhido = results.firstWhere(
-            (item) => item['name'].toString().toLowerCase() == busca,
-            orElse: () => results.first,
-          );
-
-          final detailUri = Uri.parse("https://www.dnd5eapi.co${escolhido['url']}");
-          final detailResponse = await http.get(detailUri);
-
-          if (detailResponse.statusCode == 200) {
-            return Map<String, dynamic>.from(json.decode(detailResponse.body));
-          }
-        }
-      }
-
-      // 2. Fallback: tentar busca direta por slug / índice
-      final slug = busca.replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-|-$'), '');
-      final slugUri = Uri.parse("$_baseUrl/classes/$slug");
-      final slugResponse = await http.get(slugUri);
-
-      if (slugResponse.statusCode == 200) {
-        return Map<String, dynamic>.from(json.decode(slugResponse.body));
-      }
-
-      throw Exception('Classe "$valor" não encontrada. Tente: wizard, fighter, rogue, cleric, barbarian, paladin, etc.');
-    } on SocketException {
-      throw Exception('Erro de conexão com a internet');
-    } catch (e) {
-      rethrow;
-    }
+    detalhe['_outros_resultados'] = itens
+        .where((e) => e['index'] != index)
+        .take(5)
+        .map((e) => e['name'])
+        .toList();
+    return detalhe;
   }
 }
